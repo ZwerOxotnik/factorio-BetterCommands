@@ -19,12 +19,8 @@ local M = {
 ---@field allow_for_server boolean?  # Allow execution of a command from a server (default: false)
 ---@field only_for_admin boolean? # The command can be executed only by admins (default: false)
 ---@field default_value boolean? # Default value for settings (default: true)
----@field allow_for_players string[] # Allows to use the command for players with specified names (default: nil)
----@field max_input_length uint # Max amount of characters for command (default: 500)
-
-
----@class _BetterCommand
----@field name string
+---@field allow_for_players string[]? # Allows to use the command for players with specified names (default: nil)
+---@field max_input_length? uint # Max amount of characters for command (default: 500)
 
 
 ---@type table<string, function>
