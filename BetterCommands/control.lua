@@ -360,12 +360,28 @@ function M.add_commands()
 end
 
 
-function M.on_init()
+function M.check_global_data()
+	local activated_commands = global.BetterCommands.activated_commands
+	for command_name, command_name_in_game in pairs(activated_commands) do
+		if commands.commands[command_name_in_game] == nil then
+			activated_commands[command_name] = nil
+		end
+	end
+end
+
+
+function M.update_global_data()
 	global.BetterCommands = global.BetterCommands or {}
 	---@type table<string, string>
 	global.BetterCommands.activated_commands = global.BetterCommands.activated_commands or {}
 
+end
+
+
+function M.on_init()
+	M.update_global_data()
 	M.add_commands()
+	M.check_global_data()
 end
 
 function M.on_load()
@@ -374,7 +390,9 @@ end
 
 
 function M.on_configuration_changed()
+	M.update_global_data()
 	M.add_commands()
+	M.check_global_data()
 end
 
 

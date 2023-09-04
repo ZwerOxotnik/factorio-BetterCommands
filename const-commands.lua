@@ -15,5 +15,4 @@ Returns tables of commands without functions as command "settings". All paramete
 ]]--
 ---@type table<string, BetterCommand>
 return {
-
 }
