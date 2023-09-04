@@ -1,0 +1,7 @@
+---------------------------------------------------------------------------------------------------
+Version: 1.0.0
+Date: 2023-09-04
+  Changes:
+    - First release for 1.1
+    - Added Brazilian Portuguese translation (thanks to @BM123499 (Bruno Melo) on crowdin)
+    - Translations: https://crowdin.com/project/factorio-mods-localization (thank you for contributions, I really appreciate it)

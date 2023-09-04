@@ -1,9 +1,10 @@
 ---@class BetterCommands : module
 ---@source https://github.com/ZwerOxotnik/factorio-BetterCommands
----@module "BetterCommands.control"
+---@module "__BetterCommands__.BetterCommands.control"
 local M = {
 	DEFAULT_MAX_INPUT_LENGTH = 500, -- set any number
-	COMMAND_PREFIX = nil -- TODO: store as global data
+	COMMAND_PREFIX = nil, -- TODO: store as global data
+	is_commands_on_by_default = true,
 }
 
 
@@ -28,19 +29,20 @@ local _all_commands = {} -- commands from other modules
 
 
 local __mod_path = ""
-if script.mod_name ~= "level" then
-	__mod_path = "__" ..  script.mod_name .. "__"
-end
-
-
 local CONST_COMMANDS, SWITCHABLE_COMMANDS
-local __is_ok, __commands_data = pcall(require, __mod_path .. ".const-commands")
-if __is_ok then
-	CONST_COMMANDS = __commands_data
-end
-__is_ok, __commands_data = pcall(require, __mod_path .. ".switchable-commands")
-if __is_ok then
-	SWITCHABLE_COMMANDS = __commands_data
+if script and commands and settings and settings.global then
+	if script.mod_name ~= "level" then
+		__mod_path = "__" ..  script.mod_name .. "__"
+	end
+
+	local __is_ok, __commands_data = pcall(require, __mod_path .. ".const-commands")
+	if __is_ok then
+		CONST_COMMANDS = __commands_data
+	end
+	__is_ok, __commands_data = pcall(require, __mod_path .. ".switchable-commands")
+	if __is_ok then
+		SWITCHABLE_COMMANDS = __commands_data
+	end
 end
 
 
@@ -53,7 +55,7 @@ end
 ---@param command_settings BetterCommand
 ---@param player LuaPlayer
 ---@return boolean
-local is_player_allowed_to_use = function(command_settings, player)
+function M.is_player_allowed_to_use(command_settings, player)
 	if not command_settings.only_for_admin or player.admin then
 		return true
 	end
@@ -146,7 +148,7 @@ local function add_custom_command(orig_command_name, command_settings, original_
 		else
 			local caller = game.get_player(cmd.player_index)
 			if not (caller and caller.valid) then return end
-			if is_player_allowed_to_use(command_settings, caller) then
+			if not M.is_player_allowed_to_use(command_settings, caller) then
 				caller.print({"command-output.parameters-require-admin"})
 				return
 			end
@@ -157,7 +159,7 @@ local function add_custom_command(orig_command_name, command_settings, original_
 				print_to_caller({"", '/' .. new_command_name .. ' ', command_description}, cmd.player_index)
 				return
 			end
-		elseif #cmd.parameter > Mmax_input_length then
+		elseif #cmd.parameter > max_input_length then
 			print_to_caller({"", {"description.maximum-length", '=', max_input_length}}, cmd.player_index)
 			return
 		end
@@ -205,7 +207,7 @@ end
 
 ---Handles commands of a module
 ---@param module module your module with commands
-function M:handle_custom_commands(module)
+function M.handle_custom_commands(module)
 	if module == nil then
 		log("Parameter is nil")
 		return false
@@ -268,13 +270,25 @@ function M.on_runtime_mod_setting_changed(event)
 end
 
 
---- Adds settings for commands, so we can disable commands by settings
+--- Adds settings for commands, so scripts/admins can disable commands via settings
 --- Use it during setting stage
 ---@param mod_name string?
 ---@param mod_short_name string?
 function M.create_settings(mod_name, mod_short_name)
 	mod_name = mod_name or MOD_NAME
-	mod_short_name = mod_short_name or MOD_SHORT_NAME
+	mod_short_name = mod_short_name or M.COMMAND_PREFIX
+
+	if mods[mod_name] then
+		__mod_path = "__" .. mod_name .. "__."
+	end
+	local _is_ok, _commands_data = pcall(require, __mod_path .. "const-commands")
+	if _is_ok then
+		CONST_COMMANDS = _commands_data
+	end
+	_is_ok, _commands_data = pcall(require, __mod_path .. "switchable-commands")
+	if _is_ok then
+		SWITCHABLE_COMMANDS = _commands_data
+	end
 
 	local new_settings = {}
 	for name, command_settings in pairs(SWITCHABLE_COMMANDS) do
@@ -285,7 +299,7 @@ function M.create_settings(mod_name, mod_short_name)
 			type = "bool-setting",
 			name = mod_short_name .. name,
 			setting_type = "runtime-global",
-			default_value = command_settings.default_value or true,
+			default_value = command_settings.default_value or M.is_commands_on_by_default,
 			localised_name = command_name,
 			localised_description = {'', command_name, ' ', description}
 		}
@@ -298,7 +312,7 @@ end
 
 
 local _is_commands_added = false
-function M.add_commands()
+function M._add_commands()
 	if _is_commands_added then return end
 
 	local activated_commands = global.BetterCommands.activated_commands
@@ -374,24 +388,23 @@ function M.update_global_data()
 	global.BetterCommands = global.BetterCommands or {}
 	---@type table<string, string>
 	global.BetterCommands.activated_commands = global.BetterCommands.activated_commands or {}
-
 end
 
 
 function M.on_init()
 	M.update_global_data()
-	M.add_commands()
+	M._add_commands()
 	M.check_global_data()
 end
 
 function M.on_load()
-	M.add_commands()
+	M._add_commands()
 end
 
 
 function M.on_configuration_changed()
 	M.update_global_data()
-	M.add_commands()
+	M._add_commands()
 	M.check_global_data()
 end
 
