@@ -6,7 +6,7 @@
 ---@module "BetterCommands.control"
 local M = {
 	DEFAULT_MAX_INPUT_LENGTH = 500, -- set any number
-	MOD_SHORT_NAME = nil -- TODO: store as global data
+	COMMAND_PREFIX = nil -- TODO: store as global data
 }
 
 
@@ -55,7 +55,7 @@ end
 
 ---@return boolean
 local function remove_command(command_name)
-	if commands.remove_command((M.MOD_SHORT_NAME or MOD_SHORT_NAME) .. command_name) then
+	if commands.remove_command((M.COMMAND_PREFIX or MOD_SHORT_NAME) .. command_name) then
 		return true
 	else
 		return commands.remove_command(command_name)
@@ -120,7 +120,7 @@ local function disable_setting(error_message, player_index, orig_command_name)
 
 	-- Turns off the command
 	if orig_command_name then
-		local setting_name = (M.MOD_SHORT_NAME or MOD_SHORT_NAME) .. orig_command_name
+		local setting_name = (M.COMMAND_PREFIX or MOD_SHORT_NAME) .. orig_command_name
 		if settings.global[setting_name] then
 			settings.global[setting_name] = {
 				value = false
@@ -144,14 +144,14 @@ local function add_custom_command(orig_command_name, command_settings, original_
 	local is_allowed_empty_args = command_settings.is_allowed_empty_args
 	local command_name = command_settings.name
 	if commands.commands[command_name] then
-		command_name = (M.MOD_SHORT_NAME or MOD_SHORT_NAME) .. command_name
+		command_name = (M.COMMAND_PREFIX or MOD_SHORT_NAME) .. command_name
 		if commands.commands[command_name] then
 			return false
 		end
 	end
 
 	local max_input_length = command_settings.max_input_length or M.DEFAULT_MAX_INPUT_LENGTH
-	local command_description = command_settings.description or {__mod_path .. "-commands." .. command_settings.name}
+	local command_description = command_settings.description or {script.mod_name .. "-commands." .. command_settings.name}
 	commands.add_command(command_name, command_description, function(cmd)
 		if cmd.player_index == 0 then
 			if command_settings.allow_for_server == false then
@@ -245,7 +245,7 @@ function M:handle_custom_commands(module)
 		command_settings.name = command_settings.name or command_name
 		local setting = nil
 		if SWITCHABLE_COMMANDS[command_name] then
-			setting = settings.global[(M.MOD_SHORT_NAME or MOD_SHORT_NAME) .. command_name]
+			setting = settings.global[(M.COMMAND_PREFIX or MOD_SHORT_NAME) .. command_name]
 		end
 
 		if setting == nil then
@@ -284,9 +284,9 @@ end
 local function on_runtime_mod_setting_changed(event)
 	if event.setting_type ~= "runtime-global" then return end
 	local setting_name = event.setting
-	if string.find(setting_name, '^' .. (M.MOD_SHORT_NAME or MOD_SHORT_NAME)) ~= 1 then return end
+	if string.find(setting_name, '^' .. (M.COMMAND_PREFIX or MOD_SHORT_NAME)) ~= 1 then return end
 
-	local command_name = string.gsub(setting_name, '^' .. (M.MOD_SHORT_NAME or MOD_SHORT_NAME), "")
+	local command_name = string.gsub(setting_name, '^' .. (M.COMMAND_PREFIX or MOD_SHORT_NAME), "")
 	local func = find_func_by_command_name(command_name)
 	if func == nil then
 		log("Didn't find '" .. command_name .. "' among commands in modules")
