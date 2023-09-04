@@ -6,7 +6,7 @@
     "author": "ZwerOxotnik",
     "contact": "zweroxotnik@gmail.com, Discord:ZwerOxotnik",
     "homepage": "https://www.reddit.com/r/ZwerOxotnik/",
-    "description": "(Switchable) data-driven commands for mod developers",
+    "description": "(Switchable) data-driven commands for mod developers with easy customization",
     "dependencies": [
 			"? zk-lib"
 		]
