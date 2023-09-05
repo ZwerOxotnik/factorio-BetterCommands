@@ -1,8 +1,15 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.0
+Date: 2023-09-05
+  Features:
+    - Exposes global data as string/json via require("__BetterCommands__.BetterCommands.control").expose_global_data()
+    - Added new switchable command: /__show_global_data [mod name]
+    - You can specify "is_logged" in "switchable-commands.lua" and "const-commands.lua"
+---------------------------------------------------------------------------------------------------
 Version: 1.0.1
 Date: 2023-09-04
   Bugfixes:
-    - Doen't add not existing commands between updates
+    - Doesn't add not existing commands between updates
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.0
 Date: 2023-09-04

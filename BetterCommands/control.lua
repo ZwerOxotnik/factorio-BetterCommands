@@ -5,6 +5,7 @@ local M = {
 	DEFAULT_MAX_INPUT_LENGTH = 500, -- set any number
 	COMMAND_PREFIX = nil, -- TODO: store as global data
 	is_commands_on_by_default = true,
+	is_commands_logged = false,
 }
 
 
@@ -21,7 +22,8 @@ local M = {
 ---@field only_for_admin boolean? # The command can be executed only by admins (default: false)
 ---@field default_value boolean? # Default value for settings (default: true)
 ---@field allow_for_players string[]? # Allows to use the command for players with specified names (default: nil)
----@field max_input_length? uint # Max amount of characters for command (default: 500)
+---@field max_input_length uint? # Max amount of characters for command (default: 500)
+---@field is_logged boolean? # Logs the command into .log file (default: true)
 
 
 ---@type table<string, function>
@@ -140,13 +142,14 @@ local function add_custom_command(orig_command_name, command_settings, original_
 	local max_input_length = command_settings.max_input_length or M.DEFAULT_MAX_INPUT_LENGTH
 	local command_description = command_settings.description or {script.mod_name .. "-commands." .. command_settings.name}
 	commands.add_command(new_command_name, command_description, function(cmd)
+		local caller
 		if cmd.player_index == 0 then
 			if command_settings.allow_for_server == false then
 				print({"prohibited-server-command"})
 				return
 			end
 		else
-			local caller = game.get_player(cmd.player_index)
+			caller = game.get_player(cmd.player_index)
 			if not (caller and caller.valid) then return end
 			if not M.is_player_allowed_to_use(command_settings, caller) then
 				caller.print({"command-output.parameters-require-admin"})
@@ -192,9 +195,25 @@ local function add_custom_command(orig_command_name, command_settings, original_
 			end
 		end
 
+		if command_settings.is_logged ~= false and
+			not (command_settings.is_logged or M.is_commands_logged)
+		then
+			local message
+
+			if caller then
+				message = string.format("\"%s\" player", caller.name)
+			else
+				message = "Server"
+			end
+
+			message = string.format("%s used command /%s %s (tick: %d)", message, (cmd.parameter or ""), cmd.tick)
+			log(message)
+		end
+
 		-- error handling
 		local is_ok, error_message = pcall(original_func, cmd)
 		if is_ok then
+
 			return
 		else
 			disable_setting(error_message, cmd.player_index, orig_command_name)
@@ -255,6 +274,7 @@ function M.on_runtime_mod_setting_changed(event)
 	if settings.global[setting_name].value == true then
 		local new_command_name = add_custom_command(command_name, command_settings, func)
 		if new_command_name then
+			--- TODO: add localization
 			game.print("Added command: " .. new_command_name)
 			activated_commands[command_name] = new_command_name
 		else
@@ -264,6 +284,7 @@ function M.on_runtime_mod_setting_changed(event)
 	elseif activated_commands[command_name] then
 		local command_name_in_game = activated_commands[command_name]
 		commands.remove_command(command_name_in_game)
+		--- TODO: add localization
 		game.print("Removed command: " .. command_name_in_game)
 		activated_commands[command_name] = nil
 	end
@@ -366,7 +387,7 @@ function M._add_commands()
 
 			add_custom_command(command_name_in_game, command_settings, func)
 
-		    ::continue::
+			::continue::
 		end
 	end
 
@@ -398,6 +419,21 @@ function M.update_global_data()
 			activated_commands[command_name] = nil
 		end
 	end
+end
+
+
+function M.expose_global_data()
+	local interface_name = "__" .. script.mod_name .. "__BC"
+	remote.remove_interface(interface_name) -- for safety
+	remote.add_interface(interface_name, {
+		get_global_data_as_json = function()
+			if not game then return end
+			return game.table_to_json(global)
+		end,
+		get_global_data_as_string = function()
+			return serpent.line(global)
+		end,
+	})
 end
 
 
