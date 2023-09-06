@@ -10,10 +10,10 @@ Returns tables of commands without functions as command "settings". All paramete
 				"team" - Stops execution if can't find a team (force) by parameter
 		allow_for_server :: boolean: Allow execution of a command from a server (default: false)
 		only_for_admin :: boolean: The command can be executed only by admins (default: false)
-		default_value :: boolean: Default value for settings (default: true)
 		allow_for_players :: string[]: Allows to use the command for players with specified names (default: nil)
 		max_input_length :: uint # Max amount of characters for command (default: 500)
 		is_logged :: boolean # Logs the command into .log file (default: false)
+		alternative_names :: string[] # Alternative names for the command (all commands should be added) (default: nil)
 ]]--
 ---@type table<string, BetterCommand>
 return {

@@ -1,4 +1,16 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.2.0
+Date: 2023-09-06
+  Features:
+    - Added custom names for commands via map settings
+  Bugfixes:
+    - Fixed crash when there's no switchable-commands.lua
+    - Fixed crash because of logging
+    - Fixed locales
+  Scripting:
+    - You can specify alternatives names for commands in "alternative_names" property as array of string
+    - Renamed default_value to is_added_by_default
+---------------------------------------------------------------------------------------------------
 Version: 1.1.0
 Date: 2023-09-05
   Features:

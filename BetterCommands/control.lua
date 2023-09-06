@@ -2,10 +2,12 @@
 ---@source https://github.com/ZwerOxotnik/factorio-BetterCommands
 ---@module "__BetterCommands__.BetterCommands.control"
 local M = {
-	DEFAULT_MAX_INPUT_LENGTH = 500, -- set any number
-	COMMAND_PREFIX = nil, -- TODO: store as global data
-	is_commands_on_by_default = true,
-	is_commands_logged = false,
+	is_commands_added_by_default = true, --[[@type boolean]]
+	DEFAULT_MAX_INPUT_LENGTH = 500,   --[[@type uint]]
+	COMMAND_PREFIX = nil,             --[[@type string?]] -- TODO: store as global data
+	is_commands_logged = false,       --[[@type boolean?]]
+	global_commands_cooldown = nil,   --[[@type uint?]]
+	commands_player_cooldown = nil,   --[[@type uint?]]
 }
 
 
@@ -20,10 +22,19 @@ local M = {
 ---@field input_type BetterCommandType? # Filter for parameters by type of input. (default: nil)
 ---@field allow_for_server boolean?  # Allow execution of a command from a server (default: false)
 ---@field only_for_admin boolean? # The command can be executed only by admins (default: false)
----@field default_value boolean? # Default value for settings (default: true)
+---@field is_added_by_default boolean? # Default value for switchable commands (default: true)
 ---@field allow_for_players string[]? # Allows to use the command for players with specified names (default: nil)
 ---@field max_input_length uint? # Max amount of characters for command (default: 500)
 ---@field is_logged boolean? # Logs the command into .log file (default: true)
+---@field alternative_names string[]? # Alternative names for the command (all commands should be added) (default: nil)
+-- TODO: ---@field global_cooldown uint? # (default: nil)
+-- TODO: ---@field player_cooldown uint? # (default: nil)
+-- TODO: ---@field force_cooldown  uint? # (default: nil)
+-- TODO: ---@field disable_cooldown_for_admins boolean? # (default: false)
+-- TODO: ---@field disable_cooldown_for_server boolean? # (default: true)
+-- TODO: ---@field is_one_time_use boolean? # Disables the command after using it (default: false)
+-- TODO: ---@field is_one_time_use_for_player boolean? # (default: nil)
+-- TODO: ---@field is_one_time_use_for_force  boolean? # (default: nil)
 
 
 ---@type table<string, function>
@@ -31,7 +42,10 @@ local _all_commands = {} -- commands from other modules
 
 
 local __mod_path = ""
-local CONST_COMMANDS, SWITCHABLE_COMMANDS
+---@type table<string, BetterCommand>?
+local CONST_COMMANDS
+---@type table<string, BetterCommand>?
+local SWITCHABLE_COMMANDS
 if script and commands and settings and settings.global then
 	if script.mod_name ~= "level" then
 		__mod_path = "__" ..  script.mod_name .. "__"
@@ -46,6 +60,12 @@ if script and commands and settings and settings.global then
 		SWITCHABLE_COMMANDS = __commands_data
 	end
 end
+
+
+local _INPUT_TYPES = {
+	player = 1,
+	team   = 2
+}
 
 
 ---@param s string
@@ -116,22 +136,86 @@ local function disable_setting(error_message, player_index, orig_command_name)
 	end
 end
 
-local _PLAYER_INPUT_TYPE = 1
-local _TEAM_INPUT_TYPE = 2
-local _INPUT_TYPES = {
-	player = _PLAYER_INPUT_TYPE,
-	team   = _TEAM_INPUT_TYPE
-}
+
+---@param command_name string
+---@param is_disabled boolean?
+function M._remove_commands(command_name, is_disabled)
+	local activated_commands = global.BetterCommands.activated_commands
+	local added_commands = activated_commands[command_name]
+	if type(added_commands) == "string" then
+		if is_disabled then
+			--- TODO: add localization
+			game.print("Removed command: " .. added_commands)
+		end
+		commands.remove_command(added_commands)
+	else
+		if is_disabled then
+			--- TODO: add localization and improve
+			game.print("Removed command: " .. added_commands[1])
+		end
+		for _, name in ipairs(added_commands) do
+			commands.remove_command(name)
+		end
+	end
+	activated_commands[command_name] = nil
+end
+
+
+---@param command_name string
+function M.add_custom_commands(command_name)
+	if not game then return end
+	local activated_commands = global.BetterCommands.activated_commands
+	local original_func = _all_commands[command_name]
+	local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name]) or
+		(CONST_COMMANDS and CONST_COMMANDS[command_name])
+	---@type string[]
+	local new_commands = {}
+
+	local new_command_name = M.add_custom_command(command_name, command_settings, original_func)
+	if new_command_name then
+		new_commands[#new_commands+1] = new_command_name
+	else
+		log(script.mod_name .. " can't add command \"" .. command_settings.name .. "\"")
+	end
+
+	for _, alternative_name in ipairs(command_settings.alternative_names or {}) do
+		local new_command_name = M.add_custom_command(command_name, command_settings, original_func, alternative_name)
+		if new_command_name then
+			new_commands[#new_commands+1] = new_command_name
+		else
+			log(script.mod_name .. " can't add command \"" .. command_settings.name .. "\" as \"" .. alternative_name .. "\"")
+		end
+	end
+
+	local custom_names_raw = settings.global[M.COMMAND_PREFIX .. command_name .. "_alternative_names"].value
+	for alternative_name in string.gmatch(custom_names_raw, "%g+") do
+		local new_command_name = M.add_custom_command(command_name, command_settings, original_func, alternative_name)
+		if new_command_name then
+			new_commands[#new_commands+1] = new_command_name
+		else
+			log(script.mod_name .. " can't add command \"" .. command_settings.name .. "\" as \"" .. alternative_name .. "\"")
+		end
+	end
+
+	if #new_commands == 1 then
+		activated_commands[command_name] = new_commands[1]
+	elseif #new_commands > 0 then
+		activated_commands[command_name] = new_commands
+	else
+		activated_commands[command_name] = nil
+	end
+end
 
 
 ---@param orig_command_name string
 ---@param command_settings BetterCommand
 ---@param original_func function
+---@param alternative_name string?
 ---@return string? # command name
-local function add_custom_command(orig_command_name, command_settings, original_func)
+function M.add_custom_command(orig_command_name, command_settings, original_func, alternative_name)
 	local input_type = _INPUT_TYPES[command_settings.input_type]
 	local is_allowed_empty_args = command_settings.is_allowed_empty_args
-	local new_command_name = command_settings.name
+	local new_command_name = alternative_name or command_settings.name
 	if commands.commands[new_command_name] then
 		new_command_name = (M.COMMAND_PREFIX or MOD_SHORT_NAME) .. new_command_name
 		if commands.commands[new_command_name] then
@@ -168,7 +252,7 @@ local function add_custom_command(orig_command_name, command_settings, original_
 		end
 
 		if cmd.parameter and input_type then
-			if input_type == _PLAYER_INPUT_TYPE then
+			if input_type == _INPUT_TYPES.player then
 				if #cmd.parameter > 32 then
 					print_to_caller({"gui-auth-server.username-too-long"}, cmd.player_index)
 					return
@@ -180,7 +264,7 @@ local function add_custom_command(orig_command_name, command_settings, original_
 						return
 					end
 				end
-			elseif input_type == _TEAM_INPUT_TYPE then
+			elseif input_type == _INPUT_TYPES.team then
 				if #cmd.parameter > 52 then
 					print_to_caller({"too-long-team-name"}, cmd.player_index)
 					return
@@ -206,14 +290,13 @@ local function add_custom_command(orig_command_name, command_settings, original_
 				message = "Server"
 			end
 
-			message = string.format("%s used command /%s %s (tick: %d)", message, (cmd.parameter or ""), cmd.tick)
+			message = string.format("%s used command /%s %s (tick: %d)", message, orig_command_name, (cmd.parameter or ""), cmd.tick)
 			log(message)
 		end
 
 		-- error handling
 		local is_ok, error_message = pcall(original_func, cmd)
 		if is_ok then
-
 			return
 		else
 			disable_setting(error_message, cmd.player_index, orig_command_name)
@@ -264,29 +347,39 @@ function M.on_runtime_mod_setting_changed(event)
 	local command_name = string.gsub(setting_name, '^' .. (M.COMMAND_PREFIX or MOD_SHORT_NAME), "")
 	local func = _all_commands[command_name]
 	if func == nil then
-		log("Didn't find '" .. command_name .. "' among commands")
+		setting_name = string.gsub(setting_name, "_alternative_names$", "")
+		command_name = string.gsub(command_name, "_alternative_names$", "")
+		func = _all_commands[command_name]
+		if command_name and func and settings.global[setting_name].value then
+			M._remove_commands(command_name)
+			M.add_custom_commands(command_name)
+		end
 		return
 	end
 
-	local command_settings = SWITCHABLE_COMMANDS[command_name] or {}
+	if SWITCHABLE_COMMANDS == nil then return end
+	local command_settings = SWITCHABLE_COMMANDS[command_name]
 	command_settings.name = command_settings.name or command_name
 	local activated_commands = global.BetterCommands.activated_commands
 	if settings.global[setting_name].value == true then
-		local new_command_name = add_custom_command(command_name, command_settings, func)
-		if new_command_name then
-			--- TODO: add localization
-			game.print("Added command: " .. new_command_name)
-			activated_commands[command_name] = new_command_name
+		M.add_custom_commands(command_name)
+		local added_commands = activated_commands[command_name]
+		if added_commands then
+			if type(added_commands) == "string" then
+				--- TODO: add localization and improve
+				game.print("Added command: " .. added_commands)
+				activated_commands[command_name] = added_commands
+			else -- table
+				--- TODO: add localization and improve
+				game.print("Added command: " .. added_commands[1])
+				activated_commands[command_name] = added_commands[1]
+			end
 		else
 			local message = script.mod_name .. " can't add command \"" .. command_settings.name .. "\""
 			disable_setting(message, nil, command_name)
 		end
 	elseif activated_commands[command_name] then
-		local command_name_in_game = activated_commands[command_name]
-		commands.remove_command(command_name_in_game)
-		--- TODO: add localization
-		game.print("Removed command: " .. command_name_in_game)
-		activated_commands[command_name] = nil
+		M._remove_commands(command_name, true)
 	end
 end
 
@@ -312,18 +405,43 @@ function M.create_settings(mod_name, mod_short_name)
 	end
 
 	local new_settings = {}
-	for name, command_settings in pairs(SWITCHABLE_COMMANDS) do
-		local command_name = command_settings.name or name
-		local description = command_settings.description or {mod_name .. "-commands." .. command_name}
-		command_name = '/' .. command_name
-		new_settings[#new_settings + 1] = {
-			type = "bool-setting",
-			name = mod_short_name .. name,
-			setting_type = "runtime-global",
-			default_value = command_settings.default_value or M.is_commands_on_by_default,
-			localised_name = command_name,
-			localised_description = {'', command_name, ' ', description}
-		}
+	if SWITCHABLE_COMMANDS then
+		for name, command_settings in pairs(SWITCHABLE_COMMANDS) do
+			local command_name = command_settings.name or name
+			local description = command_settings.description or {mod_name .. "-commands." .. command_name}
+			command_name = '/' .. command_name
+			new_settings[#new_settings + 1] = {
+				type = "bool-setting",
+				name = mod_short_name .. name,
+				setting_type = "runtime-global",
+				default_value = command_settings.is_added_by_default or M.is_commands_added_by_default,
+				localised_name = command_name,
+				localised_description = {'', command_name, ' ', description}
+			}
+			new_settings[#new_settings + 1] = {
+				type = "string-setting",
+				name = mod_short_name .. name .. "_alternative_names",
+				setting_type = "runtime-global",
+				default_value = "", allow_blank = true,
+				localised_name = {"BetterCommands.command_alternative_names", command_name},
+				-- localised_description = {} -- TODO: add all alternative names
+			}
+		end
+	end
+
+	if CONST_COMMANDS then
+		for name, command_settings in pairs(CONST_COMMANDS) do
+			local command_name = command_settings.name or name
+			command_name = '/' .. command_name
+			new_settings[#new_settings + 1] = {
+				type = "string-setting",
+				name = mod_short_name .. name .. "_alternative_names",
+				setting_type = "runtime-global",
+				default_value = "", allow_blank = true,
+				localised_name = {"BetterCommands.command_alternative_names", command_name},
+				-- localised_description = {} -- TODO: add all alternative names
+			}
+		end
 	end
 
 	if #new_settings > 0 then
@@ -340,41 +458,41 @@ function M._add_commands()
 	if game then
 		for command_name, original_func in pairs(_all_commands) do
 			local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
-				or (CONST_COMMANDS and CONST_COMMANDS[command_name])
+				or (CONST_COMMANDS and CONST_COMMANDS[command_name]) --[[@as BetterCommand?]]
 			if not command_settings then
 				goto continue
 			end
 
 			command_settings.name = command_settings.name or command_name
 			local setting = nil
-			if SWITCHABLE_COMMANDS[command_name] then
+			if SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name] then
 				setting = settings.global[(M.COMMAND_PREFIX or MOD_SHORT_NAME) .. command_name]
 			end
 
 			if setting == nil then
-				local new_command_name = add_custom_command(command_name, command_settings, original_func)
-				if new_command_name then
-					activated_commands[command_name] = new_command_name
-				else
-					log(script.mod_name .. " can't add command \"" .. command_settings.name .. "\"")
-				end
+				M.add_custom_commands(command_name)
 			elseif setting.value then
-				local new_command_name = add_custom_command(command_name, command_settings, original_func)
-				if new_command_name then
-					activated_commands[command_name] = new_command_name
-				else
+				M.add_custom_commands(command_name)
+				if activated_commands[command_name] == nil then
 					local message = script.mod_name .. " can't add command \"" .. command_settings.name .. "\""
 					disable_setting(message, nil, command_name)
 				end
 			elseif activated_commands[command_name] then
-				commands.remove_command(activated_commands[command_name])
+				local added_commands = activated_commands[command_name]
+				if type(added_commands) == "string" then
+					commands.remove_command(added_commands)
+				else
+					for _, name in ipairs(added_commands) do
+						commands.remove_command(name)
+					end
+				end
 				activated_commands[command_name] = nil
 			end
 
 			::continue::
 		end
 	else
-		for command_name, command_name_in_game in ipairs(activated_commands) do
+		for command_name, _commands in ipairs(activated_commands) do
 			local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
 				or (CONST_COMMANDS and CONST_COMMANDS[command_name])
 			if not command_settings then
@@ -385,7 +503,19 @@ function M._add_commands()
 				goto continue
 			end
 
-			add_custom_command(command_name_in_game, command_settings, func)
+			if type(_commands) == "string" then
+				local result = M.add_custom_command(_commands, command_settings, func)
+				if result == nil then
+					log(string.format("WARNING! \"%s\" command wasn't added as \"%s\""), command_name, _commands)
+				end
+			else
+				for _, name in pairs(_commands) do
+					local result = M.add_custom_command(name, command_settings, func)
+					if result == nil then
+						log(string.format("WARNING! \"%s\" command wasn't added as \"%s\""), command_name, name)
+					end
+				end
+			end
 
 			::continue::
 		end
@@ -397,8 +527,23 @@ end
 
 function M._check_settings_data()
 	local activated_commands = global.BetterCommands.activated_commands
-	for command_name, command_name_in_game in pairs(activated_commands) do
-		if commands.commands[command_name_in_game] == nil then
+	for command_name, _commands in pairs(activated_commands) do
+		local _type = type(_commands)
+		if _type == "string" then
+			if commands.commands[_commands] == nil then
+				activated_commands[command_name] = nil
+			end
+		elseif _type == "table" then
+			for i=#_commands, 1, -1 do
+				local name = _commands[i]
+				if commands.commands[name] == nil then
+					table.remove(_commands, i)
+				end
+			end
+			if #_commands == 0 then
+				activated_commands[command_name] = nil
+			end
+		else
 			activated_commands[command_name] = nil
 		end
 	end
@@ -407,10 +552,10 @@ end
 
 function M.update_global_data()
 	global.BetterCommands = global.BetterCommands or {}
-	---@type table<string, string>
+	---@type table<string, string|string[]>
 	global.BetterCommands.activated_commands = global.BetterCommands.activated_commands or {}
 
-	-- Remove not existing commands
+	-- Remove data of not existing commands
 	local activated_commands = global.BetterCommands.activated_commands
 	for command_name in pairs(activated_commands) do
 		local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
