@@ -27,14 +27,14 @@ local M = {
 ---@field max_input_length uint? # Max amount of characters for command (default: 500)
 ---@field is_logged boolean? # Logs the command into .log file (default: true)
 ---@field alternative_names string[]? # Alternative names for the command (all commands should be added) (default: nil)
+---@field is_one_time_use boolean? # Disables the command after using it (default: false)
+---@field is_one_time_use_for_player boolean? # Disables for a player after using it (default: false)
+---@field is_one_time_use_for_force  boolean? # Disables for a force after using it (default: false)
 -- TODO: ---@field global_cooldown uint? # (default: nil)
 -- TODO: ---@field player_cooldown uint? # (default: nil)
 -- TODO: ---@field force_cooldown  uint? # (default: nil)
 -- TODO: ---@field disable_cooldown_for_admins boolean? # (default: false)
 -- TODO: ---@field disable_cooldown_for_server boolean? # (default: true)
--- TODO: ---@field is_one_time_use boolean? # Disables the command after using it (default: false)
--- TODO: ---@field is_one_time_use_for_player boolean? # (default: nil)
--- TODO: ---@field is_one_time_use_for_force  boolean? # (default: nil)
 
 
 ---@type table<string, function>
@@ -110,20 +110,22 @@ local function print_to_caller(message, player_index)
 end
 
 
----@param error_message string
----@param player_index? number
+---@param error_message string?
+---@param player_index  number?
 ---@param orig_command_name string
 local function disable_setting(error_message, player_index, orig_command_name)
-	print_to_caller(error_message, player_index)
+	if error_message then
+		print_to_caller(error_message, player_index)
 
-	if game then
-		for _, player in pairs(game.connected_players) do
-			if player.valid and player.admin then
-				player.print(error_message)
+		if game then
+			for _, player in pairs(game.connected_players) do
+				if player.valid and player.admin then
+					player.print(error_message)
+				end
 			end
 		end
+		log(error_message)
 	end
-	log(error_message)
 
 	-- Turns off the command
 	if orig_command_name then
@@ -223,6 +225,9 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 		end
 	end
 
+	local disabled_commands = global.BetterCommands.disabled_commands
+	local disabled_commands_for_players = global.BetterCommands.disabled_commands_for_players
+	local disabled_commands_for_forces  = global.BetterCommands.disabled_commands_for_forces
 	local max_input_length = command_settings.max_input_length or M.DEFAULT_MAX_INPUT_LENGTH
 	local command_description = command_settings.description or {script.mod_name .. "-commands." .. command_settings.name}
 	commands.add_command(new_command_name, command_description, function(cmd)
@@ -239,6 +244,24 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 				caller.print({"command-output.parameters-require-admin"})
 				return
 			end
+		end
+
+		if disabled_commands[orig_command_name] then
+			-- TODO: add localization
+			print_to_caller("This command can't be used anymore.", cmd.player_index)
+			return
+		elseif disabled_commands_for_players[orig_command_name] and
+			disabled_commands_for_players[orig_command_name][cmd.player_index]
+		then
+			-- TODO: add localization
+			print_to_caller("This command can't be used by you anymore.", cmd.player_index)
+			return
+		elseif caller and disabled_commands_for_forces[orig_command_name] and
+			disabled_commands_for_forces[orig_command_name][caller.force.index]
+		then
+			-- TODO: add localization
+			print_to_caller("This command can't be used by your force anymore.", cmd.player_index)
+			return
 		end
 
 		if cmd.parameter == nil then
@@ -297,6 +320,22 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 		-- error handling
 		local is_ok, error_message = pcall(original_func, cmd)
 		if is_ok then
+			if command_settings.is_one_time_use then
+				if SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[orig_command_name] then
+					disable_setting(nil, cmd.player_index, orig_command_name)
+				else
+					disabled_commands[orig_command_name] = true
+				end
+			else
+				if command_settings.is_one_time_use_for_player then
+					disabled_commands_for_players[orig_command_name] = disabled_commands_for_players[orig_command_name] or {}
+					disabled_commands_for_players[orig_command_name][cmd.player_index] = true
+				end
+				if caller and command_settings.is_one_time_use_for_force then
+					disabled_commands_for_forces[orig_command_name] = disabled_commands_for_forces[orig_command_name] or {}
+					disabled_commands_for_forces[orig_command_name][caller.force.index] = true
+				end
+			end
 			return
 		else
 			disable_setting(error_message, cmd.player_index, orig_command_name)
@@ -456,7 +495,7 @@ function M._add_commands()
 
 	local activated_commands = global.BetterCommands.activated_commands
 	if game then
-		for command_name, original_func in pairs(_all_commands) do
+		for command_name in pairs(_all_commands) do
 			local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
 				or (CONST_COMMANDS and CONST_COMMANDS[command_name]) --[[@as BetterCommand?]]
 			if not command_settings then
@@ -552,17 +591,71 @@ end
 
 function M.update_global_data()
 	global.BetterCommands = global.BetterCommands or {}
+	local mod_data = global.BetterCommands
 	---@type table<string, string|string[]>
-	global.BetterCommands.activated_commands = global.BetterCommands.activated_commands or {}
+	mod_data.activated_commands = mod_data.activated_commands or {}
+	---@type table<string, boolean>
+	mod_data.disabled_commands  = mod_data.disabled_commands  or {}
+	---@type table<string, table<uint, boolean>>
+	mod_data.disabled_commands_for_players = mod_data.disabled_commands_for_players  or {}
+	---@type table<string, table<uint, boolean>>
+	mod_data.disabled_commands_for_forces = mod_data.disabled_commands_for_forces or {}
 
 	-- Remove data of not existing commands
-	local activated_commands = global.BetterCommands.activated_commands
+	local activated_commands = mod_data.activated_commands
 	for command_name in pairs(activated_commands) do
 		local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
 			or (CONST_COMMANDS and CONST_COMMANDS[command_name])
 		if command_settings == nil then
 			activated_commands[command_name] = nil
 		end
+	end
+	local disabled_commands = mod_data.disabled_commands
+	for command_name in pairs(disabled_commands) do
+		if SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name] then
+			disable_setting(nil, nil, command_name)
+			disabled_commands[command_name] = nil
+		elseif CONST_COMMANDS and CONST_COMMANDS[command_name] then
+			disabled_commands[command_name] = nil
+		end
+	end
+	local disabled_commands_for_players = mod_data.disabled_commands_for_players
+	for command_name, players_data in pairs(disabled_commands_for_players) do
+		local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
+			or (CONST_COMMANDS and CONST_COMMANDS[command_name])
+		if command_settings == nil then
+			disabled_commands_for_players[command_name] = nil
+			goto skip_command
+		end
+		for player_index in pairs(players_data) do
+			local player = game.get_player(player_index)
+			if not (player and player.valid) then
+				players_data[player_index] = nil
+			end
+		end
+		if next(players_data) == nil then
+			disabled_commands_for_players[command_name] = nil
+		end
+		:: skip_command ::
+	end
+	local disabled_commands_for_forces = mod_data.disabled_commands_for_forces
+	for command_name, forces_data in pairs(disabled_commands_for_forces) do
+		local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
+			or (CONST_COMMANDS and CONST_COMMANDS[command_name])
+		if command_settings == nil then
+			disabled_commands_for_forces[command_name] = nil
+			goto skip_command
+		end
+		for force_index in pairs(forces_data) do
+			local force = game.forces[force_index]
+			if not (force and force.valid) then
+				forces_data[force_index] = nil
+			end
+		end
+		if next(forces_data) == nil then
+			disabled_commands_for_forces[command_name] = nil
+		end
+		:: skip_command ::
 	end
 end
 

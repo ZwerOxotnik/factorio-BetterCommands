@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.3.0
+Date: 2023-09-07
+  Scripting:
+    - You can specify uses for commands in "is_one_time_use", "is_one_time_use_for_player", "is_one_time_use_for_force" properties as boolean
+    - Added remote interfaces
+---------------------------------------------------------------------------------------------------
 Version: 1.2.0
 Date: 2023-09-06
   Features:

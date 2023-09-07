@@ -20,3 +20,15 @@ modules.better_commands.handle_custom_commands(modules.coreCommands) -- adds com
 
 
 event_handler.add_libraries(modules)
+
+
+if script.active_mods["zk-lib"] then
+	local is_ok, remote_interface_util = pcall(require, "__zk-lib__/static-libs/lualibs/control_stage/remote-interface-util")
+	if is_ok and remote_interface_util.expose_global_data then
+		remote_interface_util.expose_global_data()
+	end
+	local is_ok, rcon_util = pcall(require, "__zk-lib__/static-libs/lualibs/control_stage/rcon-util")
+	if is_ok and rcon_util.expose_global_data then
+		rcon_util.expose_global_data()
+	end
+end
