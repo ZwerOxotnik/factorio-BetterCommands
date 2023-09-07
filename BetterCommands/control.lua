@@ -357,7 +357,8 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 
 		-- error handling
 		local is_ok, error_message = pcall(original_func, cmd)
-		if is_ok and not error_message then
+		if is_ok then
+			if error_message then return end
 			--- TODO: refactor
 			if command_settings.is_one_time_use then
 				if SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[orig_command_name] then
