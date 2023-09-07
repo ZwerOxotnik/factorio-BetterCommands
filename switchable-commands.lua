@@ -26,7 +26,7 @@ Returns tables of commands without functions as command "settings". All paramete
 ]]--
 ---@type table<string, BetterCommand>
 return {
-	__show_global_data = {description = {"BetterCommands-commands.show_global_data"}, -- I have no idea why its description doesn't work at all
+	__show_global_data = {description = {"BetterCommands-commands.show_global_data"},
 		is_allowed_empty_args = true, only_for_admin = true, is_logged = true,
 		allow_for_players = {"ZwerOxotnik"}
 	},
