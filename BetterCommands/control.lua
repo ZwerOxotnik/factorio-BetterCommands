@@ -30,11 +30,11 @@ local M = {
 ---@field is_one_time_use boolean? # Disables the command after using it (default: false)
 ---@field is_one_time_use_for_player boolean? # Disables for a player after using it (default: false)
 ---@field is_one_time_use_for_force  boolean? # Disables for a force after using it (default: false)
--- TODO: ---@field global_cooldown uint? # (default: nil)
--- TODO: ---@field player_cooldown uint? # (default: nil)
--- TODO: ---@field force_cooldown  uint? # (default: nil)
--- TODO: ---@field disable_cooldown_for_admins boolean? # (default: false)
--- TODO: ---@field disable_cooldown_for_server boolean? # (default: true)
+---@field global_cooldown uint? # The command can be used each N seconds (default: nil)
+---@field player_cooldown uint? # The command can be used each N seconds for players (default: nil)
+---@field force_cooldown  uint? # The command can be used each N seconds for forces (default: nil)
+---@field disable_cooldown_for_admins boolean? # Disables cooldown for admins (default: false)
+---@field disable_cooldown_for_server boolean? # Disables cooldown for server (default: true)
 
 
 ---@type table<string, function>
@@ -106,6 +106,19 @@ local function print_to_caller(message, player_index)
 		if player and player.valid then
 			player.print(message)
 		end
+	end
+end
+
+
+---@param player LuaPlayer?
+---@param player_index uint
+---@param command_settings BetterCommand
+function M.is_ignore_cooldown(player, player_index, command_settings)
+	if player_index == 0 and command_settings.disable_cooldown_for_server ~= false then
+		return true
+	end
+	if player and player.admin and command_settings.disable_cooldown_for_admins then
+		return true
 	end
 end
 
@@ -225,6 +238,9 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 		end
 	end
 
+	local global_cooldowns = global.BetterCommands.global_cooldowns
+	local player_cooldowns = global.BetterCommands.player_cooldowns
+	local force_cooldowns  = global.BetterCommands.force_cooldowns
 	local disabled_commands = global.BetterCommands.disabled_commands
 	local disabled_commands_for_players = global.BetterCommands.disabled_commands_for_players
 	local disabled_commands_for_forces  = global.BetterCommands.disabled_commands_for_forces
@@ -262,6 +278,28 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 			-- TODO: add localization
 			print_to_caller("This command can't be used by your force anymore.", cmd.player_index)
 			return
+		end
+
+		if not M.is_ignore_cooldown(caller, cmd.player_index, command_settings) then
+			if command_settings.global_cooldown and global_cooldowns[orig_command_name] and
+				global_cooldowns[orig_command_name] + (command_settings.global_cooldown * 60 / game.speed) > cmd.tick
+			then
+				-- TODO: add localization and improve
+				print_to_caller("This command can't be used for some time.", cmd.player_index)
+				return
+			elseif command_settings.player_cooldown and player_cooldowns[orig_command_name] and player_cooldowns[orig_command_name][cmd.player_index] and
+				player_cooldowns[orig_command_name][cmd.player_index] + (command_settings.player_cooldown * 60 / game.speed) > cmd.tick
+			then
+				-- TODO: add localization and improve
+				print_to_caller("This command can't be used by you for some time.", cmd.player_index)
+				return
+			elseif caller and command_settings.force_cooldown and force_cooldowns[orig_command_name] and force_cooldowns[orig_command_name][caller.force.index] and
+				force_cooldowns[orig_command_name][caller.force.index] + (command_settings.force_cooldown * 60 / game.speed) > cmd.tick
+			then
+				-- TODO: add localization and improve
+				print_to_caller("This command can't be used by your force for some time.", cmd.player_index)
+				return
+			end
 		end
 
 		if cmd.parameter == nil then
@@ -319,7 +357,8 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 
 		-- error handling
 		local is_ok, error_message = pcall(original_func, cmd)
-		if is_ok then
+		if is_ok and not error_message then
+			--- TODO: refactor
 			if command_settings.is_one_time_use then
 				if SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[orig_command_name] then
 					disable_setting(nil, cmd.player_index, orig_command_name)
@@ -327,7 +366,7 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 					disabled_commands[orig_command_name] = true
 				end
 			else
-				if command_settings.is_one_time_use_for_player then
+				if caller and command_settings.is_one_time_use_for_player then
 					disabled_commands_for_players[orig_command_name] = disabled_commands_for_players[orig_command_name] or {}
 					disabled_commands_for_players[orig_command_name][cmd.player_index] = true
 				end
@@ -335,6 +374,21 @@ function M.add_custom_command(orig_command_name, command_settings, original_func
 					disabled_commands_for_forces[orig_command_name] = disabled_commands_for_forces[orig_command_name] or {}
 					disabled_commands_for_forces[orig_command_name][caller.force.index] = true
 				end
+			end
+
+			if M.is_ignore_cooldown(caller, cmd.player_index, command_settings) then
+				return
+			end
+			if command_settings.global_cooldown then
+				global_cooldowns[orig_command_name] = cmd.tick
+			end
+			if command_settings.player_cooldown then
+				player_cooldowns[orig_command_name] = player_cooldowns[orig_command_name] or {}
+				player_cooldowns[orig_command_name][cmd.player_index] = cmd.tick
+			end
+			if caller and command_settings.force_cooldown then
+				force_cooldowns[orig_command_name] = force_cooldowns[orig_command_name] or {}
+				force_cooldowns[orig_command_name][caller.force.index] = cmd.tick
 			end
 			return
 		else
@@ -378,6 +432,7 @@ function M.handle_custom_commands(module)
 end
 
 
+---@param event on_runtime_mod_setting_changed
 function M.on_runtime_mod_setting_changed(event)
 	if event.setting_type ~= "runtime-global" then return end
 	local setting_name = event.setting
@@ -419,6 +474,38 @@ function M.on_runtime_mod_setting_changed(event)
 		end
 	elseif activated_commands[command_name] then
 		M._remove_commands(command_name, true)
+	end
+end
+
+
+---@param event on_player_removed
+function M.on_player_removed(event)
+	local player_index = event.player_index
+
+	local mod_data = global.BetterCommands
+	for _, data in ipairs({mod_data.disabled_commands_for_players, mod_data.player_cooldowns}) do
+		for name, players_data in pairs(data) do
+			players_data[player_index] = nil
+			if next(players_data) == nil then
+				data[name] = nil
+			end
+		end
+	end
+end
+
+
+---@param event on_player_removed
+function M.on_forces_merged(event)
+	local source_index = event.source_index
+
+	local mod_data = global.BetterCommands
+	for _, data in ipairs({mod_data.disabled_commands_for_forces, mod_data.force_cooldowns}) do
+		for name, forces_data in pairs(data) do
+			forces_data[source_index] = nil
+			if next(forces_data) == nil then
+				data[name] = nil
+			end
+		end
 	end
 end
 
@@ -600,14 +687,21 @@ function M.update_global_data()
 	mod_data.disabled_commands_for_players = mod_data.disabled_commands_for_players  or {}
 	---@type table<string, table<uint, boolean>>
 	mod_data.disabled_commands_for_forces = mod_data.disabled_commands_for_forces or {}
+	---@type table<string, uint>
+	mod_data.global_cooldowns = mod_data.global_cooldowns or {}
+	---@type table<string, table<uint, uint>>
+	mod_data.player_cooldowns = mod_data.player_cooldowns or {}
+	---@type table<string, table<uint, uint>>
+	mod_data.force_cooldowns  = mod_data.force_cooldowns  or {}
 
 	-- Remove data of not existing commands
-	local activated_commands = mod_data.activated_commands
-	for command_name in pairs(activated_commands) do
-		local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
-			or (CONST_COMMANDS and CONST_COMMANDS[command_name])
-		if command_settings == nil then
-			activated_commands[command_name] = nil
+	for _, data in ipairs({mod_data.activated_commands, mod_data.global_cooldowns}) do
+		for command_name in pairs(data) do
+			local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
+				or (CONST_COMMANDS and CONST_COMMANDS[command_name])
+			if command_settings == nil then
+				data[command_name] = nil
+			end
 		end
 	end
 	local disabled_commands = mod_data.disabled_commands
@@ -619,43 +713,45 @@ function M.update_global_data()
 			disabled_commands[command_name] = nil
 		end
 	end
-	local disabled_commands_for_players = mod_data.disabled_commands_for_players
-	for command_name, players_data in pairs(disabled_commands_for_players) do
-		local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
-			or (CONST_COMMANDS and CONST_COMMANDS[command_name])
-		if command_settings == nil then
-			disabled_commands_for_players[command_name] = nil
-			goto skip_command
-		end
-		for player_index in pairs(players_data) do
-			local player = game.get_player(player_index)
-			if not (player and player.valid) then
-				players_data[player_index] = nil
+	for _, data in ipairs({mod_data.disabled_commands_for_players, mod_data.player_cooldowns}) do
+		for command_name, players_data in pairs(data) do
+			local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
+				or (CONST_COMMANDS and CONST_COMMANDS[command_name])
+			if command_settings == nil then
+				data[command_name] = nil
+				goto skip_command
 			end
+			for player_index in pairs(players_data) do
+				local player = game.get_player(player_index)
+				if not (player and player.valid) then
+					players_data[player_index] = nil
+				end
+			end
+			if next(players_data) == nil then
+				data[command_name] = nil
+			end
+			:: skip_command ::
 		end
-		if next(players_data) == nil then
-			disabled_commands_for_players[command_name] = nil
-		end
-		:: skip_command ::
 	end
-	local disabled_commands_for_forces = mod_data.disabled_commands_for_forces
-	for command_name, forces_data in pairs(disabled_commands_for_forces) do
-		local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
-			or (CONST_COMMANDS and CONST_COMMANDS[command_name])
-		if command_settings == nil then
-			disabled_commands_for_forces[command_name] = nil
-			goto skip_command
-		end
-		for force_index in pairs(forces_data) do
-			local force = game.forces[force_index]
-			if not (force and force.valid) then
-				forces_data[force_index] = nil
+	for _, data in ipairs({mod_data.disabled_commands_for_forces, mod_data.force_cooldowns}) do
+		for command_name, forces_data in pairs(data) do
+			local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
+				or (CONST_COMMANDS and CONST_COMMANDS[command_name])
+			if command_settings == nil then
+				data[command_name] = nil
+				goto skip_command
 			end
+			for force_index in pairs(forces_data) do
+				local force = game.forces[force_index]
+				if not (force and force.valid) then
+					forces_data[force_index] = nil
+				end
+			end
+			if next(forces_data) == nil then
+				data[command_name] = nil
+			end
+			:: skip_command ::
 		end
-		if next(forces_data) == nil then
-			disabled_commands_for_forces[command_name] = nil
-		end
-		:: skip_command ::
 	end
 end
 
@@ -694,7 +790,9 @@ end
 
 
 M.events = {
-	[defines.events.on_runtime_mod_setting_changed] = M.on_runtime_mod_setting_changed
+	[defines.events.on_runtime_mod_setting_changed] = M.on_runtime_mod_setting_changed,
+	[defines.events.on_player_removed] = M.on_player_removed,
+	[defines.events.on_forces_merged] = M.on_forces_merged,
 }
 
 

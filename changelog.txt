@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.4.0
+Date: 2023-09-07
+  Scripting:
+    - You can specify cooldown for commands in "global_cooldown", "player_cooldown", "force_cooldown" properties as uint
+    - You can specify cooldown options for commands in "disable_cooldown_for_admins", "disable_cooldown_for_server" properties as boolean
+  Bugfixes:
+    - Improved data stability for deleted forces, players
+---------------------------------------------------------------------------------------------------
 Version: 1.3.0
 Date: 2023-09-07
   Scripting:
