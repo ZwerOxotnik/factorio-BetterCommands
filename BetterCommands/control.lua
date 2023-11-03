@@ -581,6 +581,7 @@ local _is_commands_added = false
 function M._add_commands()
 	if _is_commands_added then return end
 
+	if global.BetterCommands == nil then return end
 	local activated_commands = global.BetterCommands.activated_commands
 	if game then
 		for command_name in pairs(_all_commands) do
