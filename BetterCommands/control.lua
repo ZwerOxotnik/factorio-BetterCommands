@@ -620,7 +620,7 @@ function M._add_commands()
 			::continue::
 		end
 	else
-		for command_name, _commands in ipairs(activated_commands) do
+		for command_name, _commands in pairs(activated_commands) do
 			local command_settings = (SWITCHABLE_COMMANDS and SWITCHABLE_COMMANDS[command_name])
 				or (CONST_COMMANDS and CONST_COMMANDS[command_name])
 			if not command_settings then
@@ -631,6 +631,7 @@ function M._add_commands()
 				goto continue
 			end
 
+			command_settings.name = command_settings.name or command_name
 			if type(_commands) == "string" then
 				local result = M.add_custom_command(_commands, command_settings, func)
 				if result == nil then
